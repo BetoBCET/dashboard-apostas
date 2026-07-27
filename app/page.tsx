@@ -9,11 +9,14 @@ export default function Home() {
   const [timeSelecionado, setTimeSelecionado] = useState('Todos');
   const [mercadoSelecionado, setMercadoSelecionado] = useState('Todos');
   const [amostragem, setAmostragem] = useState('Todos');
-  const [carregando, setCarregando] = useState(false); // Inicia falso agora para não girar à toa
+  const [carregando, setCarregando] = useState(false);
   const [alvosCadastrados, setAlvosCadastrados] = useState<any[]>([]);
+  const [apiRestante, setApiRestante] = useState<string | number>('--'); // NOVO: Estado da API
 
   // =========================================================================
   // O CÉREBRO DEFINITIVO (Validação de Mercados e Props)
+  // (Este bloco será totalmente refeito no backend no próximo passo, 
+  // mas mantemos aqui por enquanto para não quebrar a tela)
   // =========================================================================
   const verificarResultado = (odd: any, partida: any) => {
     if (odd.mercado === 'Over 2.5') {
@@ -26,30 +29,9 @@ export default function Home() {
       if (odd.selecao === 'Empate' && partida.gols_mandante === partida.gols_visitante) return 'GREEN';
       return 'RED';
     }
-    if (odd.mercado === 'Player Props') {
-      if (odd.selecao.includes('Arrascaeta')) {
-        const stats = partida.estatisticas_jogadores?.find((s: any) => s.jogadores?.nome === 'Arrascaeta');
-        return stats && stats.faltas_cometidas > 1.5 ? 'GREEN' : 'RED';
-      }
-      if (odd.selecao.includes('Calleri')) {
-        const stats = partida.estatisticas_jogadores?.find((s: any) => s.jogadores?.nome === 'Calleri');
-        return stats && stats.chutes_ao_gol > 1.5 ? 'GREEN' : 'RED';
-      }
-    }
-    if (odd.mercado === 'Ambas Marcam') {
-      const ambas = partida.gols_mandante > 0 && partida.gols_visitante > 0;
-      return (odd.selecao === 'Sim' && ambas) || (odd.selecao === 'Não' && !ambas) ? 'GREEN' : 'RED';
-    }
-    if (odd.mercado === 'Escanteios') {
-      const totalEscanteios = (partida.escanteios_mandante || 0) + (partida.escanteios_visitante || 0);
-      return (odd.selecao === 'Over 10.5' && totalEscanteios > 10.5) ? 'GREEN' : 'RED';
-    }
     return 'PENDENTE';
   };
 
-  // =========================================================================
-  // CALCULADORA DE ESTATÍSTICAS E GRÁFICO ACUMULADO
-  // =========================================================================
   const calcularEstatisticas = () => {
     let greens = 0, reds = 0, lucroAtual = 0;
     let sequencia: string[] = []; 
@@ -57,6 +39,7 @@ export default function Home() {
 
     [...partidas].reverse().forEach(partida => {
       partida.odds?.forEach((odd: any) => {
+        // Se o mercado filtrado for diferente do mercado da odd, pula
         if (mercadoSelecionado !== 'Todos' && odd.mercado !== mercadoSelecionado) return;
         const resultado = verificarResultado(odd, partida);
         
@@ -104,10 +87,9 @@ export default function Home() {
   const amplitude = maxLucro - minLucro || 1;
 
   // =========================================================================
-  // FETCH SOB DEMANDA (Substitui a leitura antiga do banco)
+  // FETCH SOB DEMANDA
   // =========================================================================
   useEffect(() => {
-    // Carrega a lista de alvos salvos no banco assim que a tela abre
     async function carregarAlvos() {
       const { data } = await supabase.from('rastreadores').select('*');
       if (data) setAlvosCadastrados(data);
@@ -127,13 +109,17 @@ export default function Home() {
     }
 
     try {
-      const resposta = await fetch(`/api/processar?id=${alvo.id_externo}&categoria=${alvo.esporte}`);
+      // Mandamos agora também o "mercadoSelecionado" para a API saber o que deve buscar
+      const resposta = await fetch(`/api/processar?id=${alvo.id_externo}&categoria=${alvo.esporte}&mercado=${mercadoSelecionado}`);
       const dados = await resposta.json();
       
       if (dados.sucesso) {
         let dadosFiltrados = dados.partidas;
         if (amostragem !== 'Todos') dadosFiltrados = dadosFiltrados.slice(0, parseInt(amostragem));
         setPartidas(dadosFiltrados);
+        
+        // NOVO: Atualiza a contagem da API na tela
+        if (dados.apiRestante) setApiRestante(dados.apiRestante);
       } else {
         console.error("Erro na API:", dados.erro);
       }
@@ -165,28 +151,51 @@ export default function Home() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Mercado</label>
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Mercado Específico</label>
             <select value={mercadoSelecionado} onChange={(e) => setMercadoSelecionado(e.target.value)} className="w-full bg-gray-950 border border-gray-800 text-gray-300 text-sm rounded-lg p-3 outline-none focus:ring-1 focus:ring-emerald-500 transition-all">
-              <option value="Todos">Todos os Mercados</option>
-              <option value="Resultado Final">Match Odds (1x2)</option>
-              <option value="Over 2.5">Gols: Over/Under 2.5</option>
-              <option value="Ambas Marcam">Gols: Ambas Marcam (BTTS)</option>
-              <option value="Escanteios">Cantos: Escanteios</option>
-              <option value="Player Props">Especiais: Player Props</option>
+              <optgroup label="Básico (Baixo Consumo API)">
+                <option value="Todos">Visão Geral (Apenas Placar)</option>
+                <option value="Resultado Final">Match Odds (1x2)</option>
+                <option value="Over 1.5">Gols: Over/Under 1.5</option>
+                <option value="Over 2.5">Gols: Over/Under 2.5</option>
+                <option value="Over 3.5">Gols: Over/Under 3.5</option>
+                <option value="Ambas Marcam">Gols: Ambas Marcam (BTTS)</option>
+              </optgroup>
+              <optgroup label="Avançado (Médio Consumo API)">
+                <option value="Escanteios HT">Cantos: Primeiro Tempo (HT)</option>
+                <option value="Escanteios Jogo">Cantos: Partida Completa</option>
+                <option value="Cartões">Cartões Totais</option>
+                <option value="Faltas Jogo">Faltas: Total da Partida</option>
+              </optgroup>
+              <optgroup label="Player Props (Alto Consumo API)">
+                <option value="Player Chutes">Jogador: Chutes (Total/Gol)</option>
+                <option value="Player Faltas">Jogador: Faltas (Feitas/Sofridas)</option>
+              </optgroup>
             </select>
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Período de Corte</label>
             <select value={amostragem} onChange={(e) => setAmostragem(e.target.value)} className="w-full bg-gray-950 border border-gray-800 text-gray-300 text-sm rounded-lg p-3 outline-none focus:ring-1 focus:ring-emerald-500 transition-all">
-              <option value="Todos">Histórico Completo</option>
               <option value="3">Últimos 3 Jogos</option>
               <option value="5">Últimos 5 Jogos</option>
+              <option value="10">Últimos 10 Jogos</option>
             </select>
           </div>
         </div>
-        <button onClick={buscarDados} disabled={carregando} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-3 rounded-lg mt-auto shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 transition-all">
+        <button onClick={buscarDados} disabled={carregando} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-3 rounded-lg shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 transition-all">
           {carregando ? 'PROCESSANDO...' : 'PROCESSAR DADOS'}
         </button>
+        
+        {/* NOVO: Medidor de API */}
+        <div className="mt-6 text-center border-t border-gray-800 pt-4">
+          <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Cota Diária da API</p>
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <div className={`w-2 h-2 rounded-full ${apiRestante !== '--' && Number(apiRestante) > 20 ? 'bg-emerald-500' : apiRestante !== '--' ? 'bg-red-500' : 'bg-gray-600'}`}></div>
+            <p className="text-xl font-black text-white">{apiRestante}</p>
+          </div>
+          <p className="text-[9px] text-gray-600 mt-1">Reseta às 21:00 (Horário de Brasília)</p>
+        </div>
+
       </aside>
 
       {/* CONTEÚDO PRINCIPAL */}
@@ -284,6 +293,8 @@ export default function Home() {
           {partidas && partidas.length > 0 ? (
             partidas.map((partida) => {
               const oddsVisiveis = mercadoSelecionado === 'Todos' ? partida.odds : partida.odds?.filter((o: any) => o.mercado === mercadoSelecionado);
+              
+              // Se tivermos selecionado um mercado específico e o jogo não tiver odds geradas, podemos pular a visualização ou mostrar as stats brutas
               if (!oddsVisiveis || oddsVisiveis.length === 0) return null;
 
               return (

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 
 export default function BarraBusca() {
-  const [esporte, setEsporte] = useState('basquete');
+  const [categoria, setCategoria] = useState('futebol_times');
   const [termo, setTermo] = useState('');
   const [resultados, setResultados] = useState<any[]>([]);
   const [carregando, setCarregando] = useState(false);
@@ -15,11 +15,14 @@ export default function BarraBusca() {
     setCarregando(true);
     
     try {
-      const res = await fetch(`/api/buscar?esporte=${esporte}&termo=${termo}`);
+      // Fio consertado aqui: enviando 'categoria' em vez de 'esporte'
+      const res = await fetch(`/api/buscar?categoria=${categoria}&termo=${termo}`);
       const dados = await res.json();
       
       if (dados.sucesso) {
         setResultados(dados.resultados);
+      } else {
+        console.error("Erro da API:", dados.erro);
       }
     } catch (erro) {
       console.error("Erro na busca", erro);
@@ -35,10 +38,10 @@ export default function BarraBusca() {
       .from('rastreadores')
       .insert([
         {
-          esporte: esporte,
+          esporte: categoria,
           id_externo: item.id_externo,
           nome: item.nome,
-          detalhes: item.time || item.pais || ''
+          detalhes: item.detalhe || ''
         }
       ]);
 
@@ -51,7 +54,7 @@ export default function BarraBusca() {
         alert('❌ Erro ao salvar: ' + error.message);
       }
     } else {
-      alert(`✅ ${item.nome} adicionado ao radar com sucesso!`);
+      alert(`✅ ${item.nome} adicionado ao radar com sucesso! Atualize a página (F5) para ele aparecer no filtro lateral.`);
     }
   };
 
@@ -62,8 +65,8 @@ export default function BarraBusca() {
       <div className="flex gap-4 mb-4">
         <select 
           className="bg-[#121215] text-white p-3 rounded-lg border border-gray-700 outline-none"
-          value={esporte} 
-          onChange={(e) => setEsporte(e.target.value)}
+          value={categoria} 
+          onChange={(e) => setCategoria(e.target.value)}
         >
           <option value="futebol_times">Futebol (Times)</option>
           <option value="futebol_jogadores">Futebol (Jogadores)</option>
@@ -73,7 +76,7 @@ export default function BarraBusca() {
 
         <input 
           type="text" 
-          placeholder="Ex: Curry ou Flamengo..." 
+          placeholder="Ex: Curry, Boston ou Flamengo..." 
           className="flex-1 bg-[#121215] text-white p-3 rounded-lg border border-gray-700 outline-none"
           value={termo}
           onChange={(e) => setTermo(e.target.value)}
@@ -94,7 +97,7 @@ export default function BarraBusca() {
           {resultados.map((item, index) => (
             <div key={index} className="flex justify-between items-center bg-[#121215] p-3 rounded-lg border border-gray-800">
               <span className="text-gray-300 font-medium">
-                {item.nome} <span className="text-gray-500 text-sm">({item.time || item.pais})</span>
+                {item.nome} <span className="text-gray-500 text-sm">({item.detalhe})</span>
               </span>
               <button 
                 onClick={() => salvarRastreador(item)}
