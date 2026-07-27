@@ -1,5 +1,6 @@
 "use client";
 
+import BarraBusca from './components/BarraBusca';
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -184,6 +185,9 @@ export default function Home() {
             </div>
             {carregando && <span className="text-emerald-500 text-sm font-bold animate-pulse bg-emerald-900/30 px-3 py-1 rounded-full">Buscando dados...</span>}
           </div>
+
+          {/* NOVA BARRA DE BUSCA ADICIONADA AQUI */}
+          <BarraBusca />
 
           {/* PAINEL FINANCEIRO TOP */}
           <div className="grid grid-cols-4 gap-4 mb-4">
