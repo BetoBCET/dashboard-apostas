@@ -65,8 +65,10 @@ export default function BarraBusca() {
           value={esporte} 
           onChange={(e) => setEsporte(e.target.value)}
         >
-          <option value="basquete">NBA (Jogadores)</option>
-          <option value="futebol">Futebol (Times)</option>
+          <option value="futebol_times">Futebol (Times)</option>
+          <option value="futebol_jogadores">Futebol (Jogadores)</option>
+          <option value="basquete_times">NBA (Times)</option>
+          <option value="basquete_jogadores">NBA (Jogadores)</option>
         </select>
 
         <input 

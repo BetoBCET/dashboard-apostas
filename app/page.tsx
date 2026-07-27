@@ -9,7 +9,8 @@ export default function Home() {
   const [timeSelecionado, setTimeSelecionado] = useState('Todos');
   const [mercadoSelecionado, setMercadoSelecionado] = useState('Todos');
   const [amostragem, setAmostragem] = useState('Todos');
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false); // Inicia falso agora para não girar à toa
+  const [alvosCadastrados, setAlvosCadastrados] = useState<any[]>([]);
 
   // =========================================================================
   // O CÉREBRO DEFINITIVO (Validação de Mercados e Props)
@@ -52,7 +53,7 @@ export default function Home() {
   const calcularEstatisticas = () => {
     let greens = 0, reds = 0, lucroAtual = 0;
     let sequencia: string[] = []; 
-    let historicoBanca: number[] = [0]; // Começa com lucro zero
+    let historicoBanca: number[] = [0]; 
 
     [...partidas].reverse().forEach(partida => {
       partida.odds?.forEach((odd: any) => {
@@ -68,7 +69,6 @@ export default function Home() {
           lucroAtual -= 1; 
           sequencia.push('RED'); 
         }
-        // Registra o saldo após cada aposta validada para montar o gráfico
         if (resultado !== 'PENDENTE') historicoBanca.push(parseFloat(lucroAtual.toFixed(2)));
       });
     });
@@ -99,38 +99,50 @@ export default function Home() {
   const stats = calcularEstatisticas();
   const medias = calcularMedias();
   
-  const maxLucro = Math.max(...stats.historicoBanca, 1); // Evita divisão por zero no gráfico
+  const maxLucro = Math.max(...stats.historicoBanca, 1);
   const minLucro = Math.min(...stats.historicoBanca, 0);
   const amplitude = maxLucro - minLucro || 1;
 
+  // =========================================================================
+  // FETCH SOB DEMANDA (Substitui a leitura antiga do banco)
+  // =========================================================================
+  useEffect(() => {
+    // Carrega a lista de alvos salvos no banco assim que a tela abre
+    async function carregarAlvos() {
+      const { data } = await supabase.from('rastreadores').select('*');
+      if (data) setAlvosCadastrados(data);
+    }
+    carregarAlvos();
+  }, []);
+
   async function buscarDados() {
     setCarregando(true);
-    let query = supabase.from('partidas').select(`
-        id, data_jogo, gols_mandante, gols_visitante, escanteios_mandante, escanteios_visitante, status,
-        campeonatos (nome, temporada),
-        mandante:times!mandante_id (nome),
-        visitante:times!visitante_id (nome),
-        odds (id, mercado, selecao, valor),
-        estatisticas_jogadores (id, chutes, chutes_ao_gol, faltas_cometidas, jogadores (nome))
-      `).order('data_jogo', { ascending: false });
-
-    const { data, error } = await query;
-    if (!error && data) {
-      let dadosFiltrados = data;
-      if (timeSelecionado !== 'Todos') {
-        dadosFiltrados = dadosFiltrados.filter((p: any) => {
-          const m = Array.isArray(p.mandante) ? p.mandante[0]?.nome : p.mandante?.nome;
-          const v = Array.isArray(p.visitante) ? p.visitante[0]?.nome : p.visitante?.nome;
-          return m === timeSelecionado || v === timeSelecionado;
-        });
-      }
-      if (amostragem !== 'Todos') dadosFiltrados = dadosFiltrados.slice(0, parseInt(amostragem));
-      setPartidas(dadosFiltrados);
+    
+    const alvo = alvosCadastrados.find(a => a.nome === timeSelecionado);
+    
+    if (!alvo || timeSelecionado === 'Todos') {
+      alert("⚠️ Por favor, selecione um rastreador específico no filtro lateral para processar.");
+      setCarregando(false);
+      return;
     }
+
+    try {
+      const resposta = await fetch(`/api/processar?id=${alvo.id_externo}&categoria=${alvo.esporte}`);
+      const dados = await resposta.json();
+      
+      if (dados.sucesso) {
+        let dadosFiltrados = dados.partidas;
+        if (amostragem !== 'Todos') dadosFiltrados = dadosFiltrados.slice(0, parseInt(amostragem));
+        setPartidas(dadosFiltrados);
+      } else {
+        console.error("Erro na API:", dados.erro);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar na gringa:", error);
+    }
+    
     setCarregando(false);
   }
-
-  useEffect(() => { buscarDados(); }, []);
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex font-sans">
@@ -142,12 +154,14 @@ export default function Home() {
         </h2>
         <div className="space-y-6 mb-8">
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Time Analisado</label>
+            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Time/Jogador Analisado</label>
             <select value={timeSelecionado} onChange={(e) => setTimeSelecionado(e.target.value)} className="w-full bg-gray-950 border border-gray-800 text-gray-300 text-sm rounded-lg p-3 outline-none focus:ring-1 focus:ring-emerald-500 transition-all">
-              <option value="Todos">Todos os Times</option>
-              <option value="Flamengo">Flamengo</option>
-              <option value="Palmeiras">Palmeiras</option>
-              <option value="São Paulo">São Paulo</option>
+              <option value="Todos">-- Escolha um Rastreador --</option>
+              {alvosCadastrados.map((alvo) => (
+                <option key={alvo.id} value={alvo.nome}>
+                  {alvo.nome} ({alvo.esporte.split('_')[0].toUpperCase()})
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -170,8 +184,8 @@ export default function Home() {
             </select>
           </div>
         </div>
-        <button onClick={buscarDados} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg mt-auto shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 transition-all">
-          PROCESSAR DADOS
+        <button onClick={buscarDados} disabled={carregando} className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-3 rounded-lg mt-auto shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 transition-all">
+          {carregando ? 'PROCESSANDO...' : 'PROCESSAR DADOS'}
         </button>
       </aside>
 
@@ -183,10 +197,9 @@ export default function Home() {
               <h1 className="text-4xl font-black text-gray-100 mb-2 tracking-tight">Desempenho Estratégico</h1>
               <p className="text-gray-400 text-sm">Parâmetros Ativos: <span className="text-emerald-400 font-semibold">{timeSelecionado} | {mercadoSelecionado} | {amostragem === 'Todos' ? 'Tudo' : `Últimos ${amostragem}`}</span></p>
             </div>
-            {carregando && <span className="text-emerald-500 text-sm font-bold animate-pulse bg-emerald-900/30 px-3 py-1 rounded-full">Buscando dados...</span>}
+            {carregando && <span className="text-emerald-500 text-sm font-bold animate-pulse bg-emerald-900/30 px-3 py-1 rounded-full">Calculando sob demanda...</span>}
           </div>
 
-          {/* NOVA BARRA DE BUSCA ADICIONADA AQUI */}
           <BarraBusca />
 
           {/* PAINEL FINANCEIRO TOP */}
@@ -221,14 +234,12 @@ export default function Home() {
               <p className={`text-4xl font-black z-10 relative ${parseFloat(stats.roi) > 0 ? 'text-emerald-400' : parseFloat(stats.roi) < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                 {parseFloat(stats.roi) > 0 ? '+' : ''}{stats.roi}%
               </p>
-              {/* Efeito visual no fundo do card de ROI */}
               <div className={`absolute -bottom-4 -right-4 w-24 h-24 rounded-full blur-2xl opacity-20 ${parseFloat(stats.roi) > 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
             </div>
           </div>
 
           {/* SESSÃO SECUNDÁRIA: MÉDIAS E GRÁFICO */}
           <div className="grid grid-cols-3 gap-4 mb-10">
-            {/* Bloco de Médias Táticas */}
             <div className="col-span-1 flex flex-col gap-4">
               <div className="bg-gray-900 border border-gray-800 p-5 rounded-2xl flex items-center justify-between shadow-md">
                 <div>
@@ -246,11 +257,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* GRÁFICO DE EVOLUÇÃO (NATIVO TAILWIND) */}
             <div className="col-span-2 bg-gray-900 border border-gray-800 p-5 rounded-2xl shadow-md flex flex-col">
               <p className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-4">Curva de Capital (Banca)</p>
               <div className="flex-1 flex items-end gap-1 h-32 w-full pt-4 relative border-b border-gray-800">
-                {/* Linha Zero */}
                 <div className="absolute w-full border-t border-dashed border-gray-700" style={{ bottom: `${(Math.abs(minLucro) / amplitude) * 100}%` }}></div>
                 
                 {stats.historicoBanca.map((valor, idx) => {
@@ -258,11 +267,9 @@ export default function Home() {
                   const corBarra = valor >= 0 ? 'bg-emerald-500' : 'bg-red-500';
                   return (
                     <div key={idx} className="flex-1 flex flex-col items-center justify-end relative group">
-                      {/* Tooltip invisível que aparece no hover */}
                       <span className="opacity-0 group-hover:opacity-100 absolute -top-8 text-xs bg-gray-950 px-2 py-1 rounded text-white z-20 pointer-events-none transition-opacity whitespace-nowrap">
                         {valor.toFixed(2)} U
                       </span>
-                      {/* Barra do gráfico */}
                       <div className={`w-full max-w-[20px] rounded-t-sm transition-all duration-500 ease-in-out ${corBarra}`} style={{ height: `${percentual}%`, minHeight: '4px' }}></div>
                     </div>
                   );
@@ -282,7 +289,6 @@ export default function Home() {
               return (
                 <div key={partida.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-lg hover:border-gray-700 transition-colors">
                   
-                  {/* Info Topo Card */}
                   <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-bold text-gray-400 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800 uppercase tracking-widest">{Array.isArray(partida.campeonatos) ? partida.campeonatos[0]?.nome : partida.campeonatos?.nome}</span>
@@ -290,7 +296,6 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Placar Centralizado */}
                   <div className="flex justify-center items-center gap-8 mb-8">
                     <span className="text-2xl font-bold w-1/3 text-right text-gray-200">{Array.isArray(partida.mandante) ? partida.mandante[0]?.nome : partida.mandante?.nome}</span>
                     <div className="bg-gray-950 px-8 py-4 rounded-xl border border-gray-800 text-4xl font-black text-white shadow-inner tracking-tighter">
@@ -300,7 +305,6 @@ export default function Home() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Apostas Rastreadas */}
                     <div className="bg-gray-950 rounded-xl p-5 border border-gray-800">
                       <h3 className="text-[10px] text-emerald-500/70 mb-4 uppercase tracking-widest font-black flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Análise da Odd
@@ -329,11 +333,9 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Stats Reais */}
                     <div className="bg-gray-950 rounded-xl p-5 border border-gray-800">
                       <h3 className="text-[10px] text-gray-500 mb-4 uppercase tracking-widest font-black">Performance Real (Jogo)</h3>
                       <div className="space-y-2">
-                        {/* Linha Coletiva (Escanteios) */}
                         <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-800/50 flex flex-col gap-1">
                           <span className="text-gray-300 font-bold text-xs uppercase">Coletivo</span>
                           <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -341,7 +343,6 @@ export default function Home() {
                             <span>Cantos Visitante: <strong className="text-gray-200">{partida.escanteios_visitante || 0}</strong></span>
                           </div>
                         </div>
-                        {/* Linhas Individuais (Props) */}
                         {partida.estatisticas_jogadores?.map((stat: any) => (
                           <div key={stat.id} className="bg-gray-900/50 p-3 rounded-lg border border-gray-800/50 flex flex-col gap-1">
                             <span className="text-gray-300 font-bold text-xs">{Array.isArray(stat.jogadores) ? stat.jogadores[0]?.nome : stat.jogadores?.nome}</span>
@@ -360,8 +361,8 @@ export default function Home() {
             })
           ) : (
              <div className="text-center py-20 border border-dashed border-gray-800 rounded-2xl bg-gray-900/30">
-               <p className="text-gray-500 font-semibold uppercase tracking-widest">Amostragem Vazia</p>
-               <p className="text-gray-600 text-sm mt-2">Altere os filtros na barra lateral.</p>
+               <p className="text-gray-500 font-semibold uppercase tracking-widest">Esperando Processamento</p>
+               <p className="text-gray-600 text-sm mt-2">Selecione um alvo na lateral e clique em Processar Dados.</p>
              </div>
           )}
         </div>
