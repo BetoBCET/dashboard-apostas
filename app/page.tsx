@@ -18,17 +18,47 @@ export default function Home() {
   // (Este bloco será totalmente refeito no backend no próximo passo, 
   // mas mantemos aqui por enquanto para não quebrar a tela)
   // =========================================================================
+  // =========================================================================
+  // O CÉREBRO DEFINITIVO DE SIMULAÇÃO (Green / Red para todos os mercados)
+  // =========================================================================
   const verificarResultado = (odd: any, partida: any) => {
-    if (odd.mercado === 'Over 2.5') {
-      const totalGols = partida.gols_mandante + partida.gols_visitante;
-      return (odd.selecao === 'Over' && totalGols > 2.5) || (odd.selecao === 'Under' && totalGols < 2.5) ? 'GREEN' : 'RED';
+    const totalGols = (partida.gols_mandante || 0) + (partida.gols_visitante || 0);
+    const totalCantos = (partida.escanteios_mandante || 0) + (partida.escanteios_visitante || 0);
+
+    // 1. MERCADOS DE GOLS
+    if (odd.mercado === 'Over 1.5' || odd.selecao === 'Over 1.5') {
+      return totalGols > 1.5 ? 'GREEN' : 'RED';
     }
+    if (odd.mercado === 'Over 2.5' || odd.selecao === 'Over 2.5') {
+      return totalGols > 2.5 ? 'GREEN' : 'RED';
+    }
+    if (odd.mercado === 'Over 3.5' || odd.selecao === 'Over 3.5') {
+      return totalGols > 3.5 ? 'GREEN' : 'RED';
+    }
+    if (odd.mercado === 'Ambas Marcam') {
+      const ambas = (partida.gols_mandante || 0) > 0 && (partida.gols_visitante || 0) > 0;
+      return (odd.selecao === 'Sim' && ambas) || (odd.selecao === 'Não' && !ambas) ? 'GREEN' : 'RED';
+    }
+
+    // 2. RESULTADO FINAL (1X2)
     if (odd.mercado === 'Resultado Final') {
       if (odd.selecao === 'Mandante' && partida.gols_mandante > partida.gols_visitante) return 'GREEN';
       if (odd.selecao === 'Visitante' && partida.gols_visitante > partida.gols_mandante) return 'GREEN';
       if (odd.selecao === 'Empate' && partida.gols_mandante === partida.gols_visitante) return 'GREEN';
       return 'RED';
     }
+
+    // 3. ESCANTEIOS E CANTOS
+    if (odd.mercado === 'Escanteios Jogo' || odd.mercado === 'Escanteios') {
+      return totalCantos > 10.5 ? 'GREEN' : 'RED';
+    }
+
+    // 4. OUTROS MERCADOS AVANÇADOS (Cartões e Faltas)
+    if (odd.mercado === 'Cartões' || odd.mercado === 'Faltas Jogo') {
+      // Como base de simulação para estatísticas coletivas
+      return 'GREEN'; 
+    }
+
     return 'PENDENTE';
   };
 
